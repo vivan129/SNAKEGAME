@@ -1,0 +1,369 @@
+# snake_game_final.py
+import sys
+import random
+import os
+from PyQt5.QtWidgets import (
+    QApplication,
+    QMainWindow,
+    QPushButton,
+    QLabel,
+    QRadioButton,
+    QButtonGroup,
+)
+from PyQt5.QtCore import Qt, QTimer, QRectF, QPointF
+from PyQt5.QtGui import (
+    QPainter,
+    QColor,
+    QFont,
+    QLinearGradient,
+    QBrush,
+    QPen,
+)
+
+# ---------- CONFIG ----------
+CELL_SIZE = 20
+GRID_SIZE = 30
+WINDOW_SIZE = CELL_SIZE * GRID_SIZE
+SCORE_BAR_HEIGHT = 40
+WINDOW_WIDTH = WINDOW_SIZE
+WINDOW_HEIGHT = WINDOW_SIZE + SCORE_BAR_HEIGHT
+HIGHSCORE_FILE = "highscore.txt"
+
+DIFFICULTY_INTERVALS = {
+    "Easy": 200,
+    "Medium": 150,
+    "Hard": 100,
+}
+DEFAULT_DIFFICULTY = "Medium"
+# ----------------------------
+
+
+def load_highscore():
+    if not os.path.exists(HIGHSCORE_FILE):
+        return 0
+    try:
+        with open(HIGHSCORE_FILE, "r") as f:
+            return int(f.read().strip() or 0)
+    except Exception:
+        return 0
+
+
+def save_highscore(value):
+    try:
+        with open(HIGHSCORE_FILE, "w") as f:
+            f.write(str(int(value)))
+    except Exception:
+        pass
+
+
+class Snake:
+    def __init__(self):
+        center = GRID_SIZE // 2
+        self.body = [(center, center)]
+        self.direction = (1, 0)
+        self.grow_pending = 0
+
+    def move(self):
+        head_x, head_y = self.body[0]
+        dx, dy = self.direction
+        new_head = (head_x + dx, head_y + dy)
+        self.body.insert(0, new_head)
+        if self.grow_pending > 0:
+            self.grow_pending -= 1
+        else:
+            self.body.pop()
+
+    def change_direction(self, new_dir):
+        opposite = (-self.direction[0], -self.direction[1])
+        if new_dir != opposite:
+            self.direction = new_dir
+
+    def grow(self):
+        self.grow_pending += 1
+
+
+class Food:
+    def __init__(self):
+        self.position = (0, 0)
+
+    def respawn(self, snake_body):
+        """Choose a random grid cell that is NOT on the snake body."""
+        available = [
+            (x, y)
+            for x in range(GRID_SIZE)
+            for y in range(GRID_SIZE)
+            if (x, y) not in set(snake_body)
+        ]
+        if not available:
+            # unlikely: snake fills board
+            self.position = (0, 0)
+        else:
+            self.position = random.choice(available)
+
+
+class SnakeGame(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Snake — Final")
+        self.setFixedSize(WINDOW_WIDTH, WINDOW_HEIGHT)
+
+        # UI / Menu elements
+        self.title_label = QLabel("S N A K E", self)
+        self.title_label.setFont(QFont("Arial", 28, QFont.Bold))
+        self.title_label.setGeometry(20, 10, 300, 40)
+
+        # Start menu area (show/hide depending on state)
+        self.start_btn = QPushButton("Start Game", self)
+        self.start_btn.setGeometry(WINDOW_WIDTH // 2 - 80, WINDOW_HEIGHT // 2 - 20, 160, 40)
+        self.start_btn.clicked.connect(self.start_game_from_menu)
+
+        self.highscore_label = QLabel(self)
+        self.highscore_label.setFont(QFont("Arial", 12))
+        self.highscore_label.setGeometry(WINDOW_WIDTH // 2 - 80, WINDOW_HEIGHT // 2 - 60, 200, 20)
+
+        # Difficulty radio buttons
+        self.rb_easy = QRadioButton("Easy", self)
+        self.rb_med = QRadioButton("Medium", self)
+        self.rb_hard = QRadioButton("Hard", self)
+        self.rb_group = QButtonGroup(self)
+        self.rb_group.addButton(self.rb_easy)
+        self.rb_group.addButton(self.rb_med)
+        self.rb_group.addButton(self.rb_hard)
+
+        # position them in menu
+        base_x = WINDOW_WIDTH // 2 - 120
+        self.rb_easy.setGeometry(base_x, WINDOW_HEIGHT // 2 + 40, 80, 20)
+        self.rb_med.setGeometry(base_x + 80, WINDOW_HEIGHT // 2 + 40, 90, 20)
+        self.rb_hard.setGeometry(base_x + 170, WINDOW_HEIGHT // 2 + 40, 80, 20)
+
+        # Set default difficulty radio
+        if DEFAULT_DIFFICULTY == "Easy":
+            self.rb_easy.setChecked(True)
+        elif DEFAULT_DIFFICULTY == "Medium":
+            self.rb_med.setChecked(True)
+        else:
+            self.rb_hard.setChecked(True)
+
+        # Game state and objects
+        self.state = "menu"  # menu, playing, paused, game_over
+        self.snake = None
+        self.food = None
+        self.score = 0
+        self.highscore = load_highscore()
+        self.update_highscore_label()
+
+        # Timer
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.game_loop)
+
+        # Start with menu visible
+        self.show_menu(True)
+
+    def update_highscore_label(self):
+        self.highscore_label.setText(f"High Score: {self.highscore}")
+        self.highscore_label.adjustSize()
+
+    def show_menu(self, visible: bool):
+        self.start_btn.setVisible(visible)
+        self.highscore_label.setVisible(visible)
+        self.rb_easy.setVisible(visible)
+        self.rb_med.setVisible(visible)
+        self.rb_hard.setVisible(visible)
+        self.title_label.setVisible(visible)
+
+    def start_game_from_menu(self):
+        # Set difficulty from radio buttons
+        if self.rb_easy.isChecked():
+            interval = DIFFICULTY_INTERVALS["Easy"]
+        elif self.rb_med.isChecked():
+            interval = DIFFICULTY_INTERVALS["Medium"]
+        else:
+            interval = DIFFICULTY_INTERVALS["Hard"]
+
+        self.start_game(interval)
+
+    def start_game(self, interval_ms=None):
+        if interval_ms is None:
+            interval_ms = DIFFICULTY_INTERVALS[DEFAULT_DIFFICULTY]
+        self.timer.setInterval(interval_ms)
+
+        self.snake = Snake()
+        self.food = Food()
+        self.food.respawn(self.snake.body)
+        self.score = 0
+        self.state = "playing"
+        self.show_menu(False)
+        self.timer.start()
+
+        # force redraw immediately
+        self.update()
+
+    def pause_resume(self):
+        if self.state == "playing":
+            self.state = "paused"
+            self.timer.stop()
+        elif self.state == "paused":
+            self.state = "playing"
+            self.timer.start()
+
+        self.update()
+
+    def trigger_game_over(self):
+        self.state = "game_over"
+        self.timer.stop()
+        if self.score > self.highscore:
+            self.highscore = self.score
+            save_highscore(self.highscore)
+            self.update_highscore_label()
+        self.update()
+
+    def restart_game(self):
+        # restart with current difficulty selection
+        if self.rb_easy.isChecked():
+            interval = DIFFICULTY_INTERVALS["Easy"]
+        elif self.rb_med.isChecked():
+            interval = DIFFICULTY_INTERVALS["Medium"]
+        else:
+            interval = DIFFICULTY_INTERVALS["Hard"]
+        self.start_game(interval)
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Up:
+            if self.snake:
+                self.snake.change_direction((0, -1))
+        elif event.key() == Qt.Key_Down:
+            if self.snake:
+                self.snake.change_direction((0, 1))
+        elif event.key() == Qt.Key_Left:
+            if self.snake:
+                self.snake.change_direction((-1, 0))
+        elif event.key() == Qt.Key_Right:
+            if self.snake:
+                self.snake.change_direction((1, 0))
+        elif event.key() == Qt.Key_P:
+            if self.state in ["playing", "paused"]:
+                self.pause_resume()
+        elif event.key() == Qt.Key_Space:
+            if self.state == "game_over":
+                self.restart_game()
+        elif event.key() == Qt.Key_Escape:
+            # back to menu from playing or game over
+            self.timer.stop()
+            self.state = "menu"
+            self.show_menu(True)
+            self.update()
+        elif event.key() == Qt.Key_Q:
+            QApplication.quit()
+
+    def game_loop(self):
+        if self.state != "playing":
+            return
+
+        self.snake.move()
+
+        # Wall collision (no wrap)
+        head_x, head_y = self.snake.body[0]
+        if head_x < 0 or head_x >= GRID_SIZE or head_y < 0 or head_y >= GRID_SIZE:
+            self.trigger_game_over()
+            return
+
+        # Self collision
+        if self.snake.body[0] in self.snake.body[1:]:
+            self.trigger_game_over()
+            return
+
+        # Food collision
+        if self.snake.body[0] == self.food.position:
+            self.snake.grow()
+            self.score += 10
+            self.food.respawn(self.snake.body)
+
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+
+        # DRAW GRADIENT BACKGROUND
+        grad = QLinearGradient(0, 0, 0, WINDOW_HEIGHT)
+        grad.setColorAt(0.0, QColor(20, 30, 48))  # dark top
+        grad.setColorAt(1.0, QColor(58, 123, 213))  # blue-ish bottom
+        painter.fillRect(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT, QBrush(grad))
+
+        # faint grid lines (optional visual polish)
+        pen = QPen(QColor(255, 255, 255, 10))
+        pen.setWidth(1)
+        painter.setPen(pen)
+        for gx in range(0, WINDOW_SIZE, CELL_SIZE):
+            painter.drawLine(gx, 0, gx, WINDOW_SIZE)
+        for gy in range(0, WINDOW_SIZE, CELL_SIZE):
+            painter.drawLine(0, gy, WINDOW_SIZE, gy)
+
+        # SCORE BAR (bottom)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 120))
+        painter.drawRect(0, WINDOW_SIZE, WINDOW_WIDTH, SCORE_BAR_HEIGHT)
+
+        # Draw score text
+        painter.setPen(QColor(255, 255, 255))
+        painter.setFont(QFont("Arial", 14))
+        painter.drawText(10, WINDOW_SIZE + 26, f"Score: {self.score}")
+        painter.drawText(200, WINDOW_SIZE + 26, f"High Score: {self.highscore}")
+
+        # Draw pause or game over message overlays
+        if self.state == "paused":
+            painter.setFont(QFont("Arial", 36, QFont.Bold))
+            painter.setPen(QColor(255, 255, 0))
+            painter.drawText(WINDOW_WIDTH // 2 - 100, WINDOW_HEIGHT // 2, "PAUSED")
+            return
+        if self.state == "menu":
+            # menu is handled by widgets; show a soft overlay title
+            painter.setFont(QFont("Arial", 22, QFont.Bold))
+            painter.setPen(QColor(255, 255, 255, 180))
+            painter.drawText(20, 50, "S N A K E  —  Polished")
+            return
+        if self.state == "game_over":
+            # draw final board then overlay game over
+            self._draw_board(painter)
+            painter.setFont(QFont("Arial", 44, QFont.Bold))
+            painter.setPen(QColor(255, 50, 50))
+            painter.drawText(WINDOW_WIDTH // 2 - 160, WINDOW_HEIGHT // 2 - 10, "GAME OVER")
+            painter.setFont(QFont("Arial", 18))
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(WINDOW_WIDTH // 2 - 140, WINDOW_HEIGHT // 2 + 30, f"Final Score: {self.score}")
+            painter.drawText(WINDOW_WIDTH // 2 - 140, WINDOW_HEIGHT // 2 + 60, "Press SPACE to Restart or ESC to Menu")
+            return
+
+        # Normal playing state: draw board
+        self._draw_board(painter)
+
+    def _draw_board(self, painter: QPainter):
+        # Draw food (circle)
+        fx, fy = self.food.position
+        center_x = fx * CELL_SIZE + CELL_SIZE / 2
+        center_y = fy * CELL_SIZE + CELL_SIZE / 2
+        radius = CELL_SIZE * 0.4
+        painter.setBrush(QColor(255, 80, 80))
+        painter.setPen(QPen(QColor(200, 40, 40)))
+        painter.drawEllipse(QPointF(center_x, center_y), radius, radius)
+
+        # Draw snake body
+        painter.setPen(Qt.NoPen)
+        for i, (x, y) in enumerate(self.snake.body):
+            rect_x = x * CELL_SIZE
+            rect_y = y * CELL_SIZE
+            if i == 0:
+                # head: different color and slight highlight
+                painter.setBrush(QColor(50, 220, 120))
+                painter.setPen(QPen(QColor(20, 120, 60)))
+                painter.drawRect(rect_x, rect_y, CELL_SIZE, CELL_SIZE)
+            else:
+                painter.setBrush(QColor(0, 180, 100))
+                painter.setPen(QPen(QColor(0, 120, 70)))
+                painter.drawRect(rect_x + 1, rect_y + 1, CELL_SIZE - 2, CELL_SIZE - 2)
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = SnakeGame()
+    window.show()
+    sys.exit(app.exec_())
