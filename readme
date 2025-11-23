@@ -1,0 +1,39 @@
+# Snake Game (PyQt5) — Final Polished Edition
+
+A fully polished and modern Snake Game built using **Python + PyQt5**, featuring:
+- Start Menu (difficulty selection, high score display)
+- Difficulty levels (Easy / Medium / Hard)
+- Saving and loading high scores
+- Gradient background + grid lines
+- Polished UI and snake/food visuals
+- Food never spawns inside the snake
+- Pause / Resume (P key)
+- Game Over screen with restart option
+- Fully commented source code for learning + portfolio use
+- Smooth grid-based movement  
+- Collision detection (walls + self)
+- Clean scoring system
+- Snake grows as it eats
+- Gradient background  
+- Grid pattern  
+- Different color snake head  
+- Circular food  
+- Score bar  
+- High score saved to `highscore.txt`
+- Difficulty-based timer speeds:
+  - **Easy:** 200ms  
+  - **Medium:** 150ms  
+  - **Hard:** 100ms  
+pip install PyQt5
+snake-game-pyqt/
+│
+├── snake_game_final.py
+├── highscore.txt
+├── README.md
+├── requirements.txt
+└── screenshots/
+       ├── menu.png
+       ├── gameplay.png
+       └── gameover.png
+
+
