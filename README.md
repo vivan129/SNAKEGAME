@@ -4,16 +4,17 @@
 General project repository.
 
 ## Current Contents
+- `UPDATE 2`
+- `LICENSE`
+- `final representation`
+- `QUICKSTART.md`
 - `500 word expereince`
 - `UPDATED`
 - `SANKE GAME`
 - `CONTRIBUTING.md`
 - `README.md`
 - `readme`
-- `QUICKSTART.md`
-- `LICENSE`
-- `final representation`
-- `UPDATE 2`
+- `docs/PROJECT_CONTEXT.md`
 
 ## Top-Level Structure
 - `docs/`
